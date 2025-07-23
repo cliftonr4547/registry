@@ -19,6 +19,8 @@ The MCP Registry service provides a centralized repository for MCP server entrie
 - MongoDB and in-memory database support
 - Comprehensive API documentation
 - Pagination support for listing registry entries
+- **Seed data export/import composability with HTTP support**
+- **Registry instance data sharing via HTTP endpoints**
 
 ## Getting Started
 
@@ -48,6 +50,27 @@ docker compose up
 
 This will start the MCP Registry service and MongoDB with Docker, exposing it on port 8080.
 
+### Registry Composability
+
+The registry supports composability through seed data import/export, allowing registry instances to share data:
+
+```bash
+# Start first registry with seed data
+MCP_REGISTRY_SEED_FILE_PATH=data/seed_2025_05_16.json ./registry
+
+# Start second registry importing from first via HTTP
+./registry --seed-file-path=http://localhost:8080/v0/seed.json
+```
+
+You can also use environment variables:
+```bash
+# Import from local file
+MCP_REGISTRY_SEED_FILE_PATH=data/seed_2025_05_16.json ./registry
+
+# Import from remote registry
+MCP_REGISTRY_SEED_FILE_PATH=http://other-registry:8080/v0/seed.json ./registry
+```
+
 ## Building
 
 If you prefer to run the service locally without Docker, you can build and run it directly using Go.
@@ -59,6 +82,20 @@ go build ./cmd/registry
 This will create the `registry` binary in the current directory. You'll need to have MongoDB running locally or with Docker.
 
 By default, the service will run on `http://localhost:8080`.
+
+### Command Line Options
+
+The registry supports command line flags for configuration:
+
+```bash
+# Specify seed file path via command line flag
+./registry --seed-file-path=data/seed_2025_05_16.json
+
+# Import from HTTP endpoint
+./registry --seed-file-path=http://localhost:8080/v0/seed.json
+```
+
+Command line flags take precedence over environment variables.
 
 ## Development
 
@@ -301,6 +338,53 @@ Response example:
 }
 ```
 
+#### Export Seed Data
+
+```
+GET /v0/seed.json
+```
+
+Exports all servers in the registry in seed format for import by other registry instances.
+
+Response example:
+```json
+[
+  {
+    "id": "01129bff-3d65-4e3d-8e82-6f2f269f818c",
+    "name": "io.github.gongrzhe/redis-mcp-server",
+    "description": "A Redis MCP server implementation for interacting with Redis databases.",
+    "repository": {
+      "url": "https://github.com/GongRzhe/REDIS-MCP-Server",
+      "source": "github",
+      "id": "907849235"
+    },
+    "version_detail": {
+      "version": "0.0.1-seed",
+      "release_date": "2025-05-16T19:13:21Z",
+      "is_latest": true
+    },
+    "packages": [
+      {
+        "registry_name": "docker",
+        "name": "@gongrzhe/server-redis-mcp",
+        "version": "1.0.0",
+        "package_arguments": [
+          {
+            "description": "Docker image to run",
+            "is_required": true,
+            "format": "string",
+            "value": "mcp/redis",
+            "default": "mcp/redis",
+            "type": "positional",
+            "value_hint": "mcp/redis"
+          }
+        ]
+      }
+    ]
+  }
+]
+```
+
 ### Ping Endpoint
 
 ```
@@ -329,9 +413,76 @@ The service can be configured using environment variables:
 | `MCP_REGISTRY_GITHUB_CLIENT_ID`      | GitHub App Client ID |  |
 | `MCP_REGISTRY_GITHUB_CLIENT_SECRET`  | GitHub App Client Secret |  |
 | `MCP_REGISTRY_LOG_LEVEL`             | Log level | `info` |
-| `MCP_REGISTRY_SEED_FILE_PATH`        | Path to import seed file | `data/seed.json` |
-| `MCP_REGISTRY_SEED_IMPORT`           | Import `seed.json` on first run | `true` |
+| `MCP_REGISTRY_SEED_FILE_PATH`        | Path or URL to import seed file (supports local files and HTTP URLs) | `data/seed.json` |
 | `MCP_REGISTRY_SERVER_ADDRESS`        | Listen address for the server | `:8080` |
+
+### Command Line Flags
+
+Command line flags take precedence over environment variables:
+
+| Flag | Description | Environment Variable |
+|------|-------------|---------------------|
+| `--seed-file-path` | Path or URL to import seed file | `MCP_REGISTRY_SEED_FILE_PATH` |
+
+**Note**: The `MCP_REGISTRY_SEED_IMPORT` environment variable has been removed. Seed data is now imported automatically when `MCP_REGISTRY_SEED_FILE_PATH` is set.
+
+## Registry Composability
+
+The MCP Registry supports composability through seed data export/import functionality, enabling registry instances to share data with each other via HTTP endpoints.
+
+### Use Cases
+
+1. **Distributed Registries**: Set up multiple registry instances that share a common dataset
+2. **Registry Synchronization**: Import data from a central registry to local instances
+3. **Development Environments**: Import production data to development instances
+4. **Registry Migration**: Move data between different registry deployments
+
+### Export Seed Data
+
+Any registry instance can export its complete dataset:
+
+```bash
+# Export all servers in seed format
+curl http://localhost:8080/v0/seed.json > exported_data.json
+```
+
+### Import Seed Data
+
+Registry instances can import data from:
+
+**Local files:**
+```bash
+# Via environment variable
+MCP_REGISTRY_SEED_FILE_PATH=data/seed_2025_05_16.json ./registry
+
+# Via command line flag
+./registry --seed-file-path=data/seed_2025_05_16.json
+```
+
+**HTTP endpoints:**
+```bash
+# Via environment variable
+MCP_REGISTRY_SEED_FILE_PATH=http://localhost:8080/v0/seed.json ./registry
+
+# Via command line flag  
+./registry --seed-file-path=http://other-registry:8080/v0/seed.json
+```
+
+### Composability Workflow Example
+
+```bash
+# Step 1: Start primary registry with initial seed data
+MCP_REGISTRY_SEED_FILE_PATH=data/seed_2025_05_16.json ./registry
+
+# Step 2: Start secondary registry importing from primary
+./registry --seed-file-path=http://localhost:8080/v0/seed.json --server-address=:8081
+
+# Step 3: Verify both registries have the same data
+curl http://localhost:8080/v0/servers | jq '.servers | length'
+curl http://localhost:8081/v0/servers | jq '.servers | length'
+```
+
+This enables true composability where registry instances can be distributed and synchronized, with new instances importing data from existing ones via HTTP.
 
 
 ## Testing
